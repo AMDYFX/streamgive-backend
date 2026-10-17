@@ -3,9 +3,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { prisma } from '../../src/db.js';
 import { handleDonationVaultEvent } from '../../src/indexer/handlers/donationVault.js';
+import { handleNgoRegistryEvent } from '../../src/indexer/handlers/ngoRegistry.js';
 import { logger } from '../../src/logger.js';
 import { fakeAddress, resetDb } from '../helpers/db.js';
-import { addressScVal, i128ScVal, makeEvent, stringScVal, symbolScVal, u64ScVal } from '../helpers/events.js';
+import {
+  addressScVal,
+  i128ScVal,
+  makeEvent,
+  stringScVal,
+  symbolScVal,
+  u64ScVal,
+} from '../helpers/events.js';
 
 describe('handleDonationVaultEvent', () => {
   afterEach(async () => {
@@ -53,9 +61,7 @@ describe('handleDonationVaultEvent', () => {
     expect(streamEvent).not.toBeNull();
     expect(streamEvent?.streamId).toBe(1n);
     expect(streamEvent?.ledger).toBe(100);
-    expect(streamEvent?.txHash).toBe(
-      'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
-    );
+    expect(streamEvent?.txHash).toBe(txHash);
     expect(streamEvent?.payload).toMatchObject({
       deposit: '1000',
       rate: '10',
@@ -110,7 +116,9 @@ describe('handleDonationVaultEvent', () => {
       },
     });
 
-    await handleDonationVaultEvent(makeEvent([symbolScVal('withdraw'), u64ScVal(2n)], i128ScVal(500n)));
+    await handleDonationVaultEvent(
+      makeEvent([symbolScVal('withdraw'), u64ScVal(2n)], i128ScVal(500n)),
+    );
 
     const stream = await prisma.stream.findUnique({ where: { onChainId: 2n } });
     expect(stream?.balance).toBe('500');
@@ -142,11 +150,9 @@ describe('handleDonationVaultEvent', () => {
     });
 
     const onChainTime = '2024-03-10T08:00:00.000Z';
-    const event = makeEvent(
-      [symbolScVal('withdraw'), u64ScVal(20n)],
-      i128ScVal(200n),
-      { ledgerClosedAt: onChainTime },
-    );
+    const event = makeEvent([symbolScVal('withdraw'), u64ScVal(20n)], i128ScVal(200n), {
+      ledgerClosedAt: onChainTime,
+    });
     await handleDonationVaultEvent(event);
 
     const stream = await prisma.stream.findUnique({ where: { onChainId: 20n } });
@@ -171,7 +177,9 @@ describe('handleDonationVaultEvent', () => {
       },
     });
 
-    await handleDonationVaultEvent(makeEvent([symbolScVal('withdraw'), u64ScVal(5n)], i128ScVal(500n)));
+    await handleDonationVaultEvent(
+      makeEvent([symbolScVal('withdraw'), u64ScVal(5n)], i128ScVal(500n)),
+    );
 
     const stream = await prisma.stream.findUnique({ where: { onChainId: 5n } });
     expect(stream?.balance).toBe('0');
@@ -266,7 +274,9 @@ describe('handleDonationVaultEvent', () => {
       },
     });
 
-    await handleDonationVaultEvent(makeEvent([symbolScVal('topup'), u64ScVal(4n)], i128ScVal(500n)));
+    await handleDonationVaultEvent(
+      makeEvent([symbolScVal('topup'), u64ScVal(4n)], i128ScVal(500n)),
+    );
 
     const stream = await prisma.stream.findUnique({ where: { onChainId: 4n } });
     expect(stream?.balance).toBe('1000'); // unchanged — see the handler's comment
@@ -276,7 +286,8 @@ describe('handleDonationVaultEvent', () => {
     expect(streamEvent).toBeNull();
   });
 
-  it('no-ops when a withdraw event is received for an unknown stream', async () => {
+  it('warns and records a dead letter when a withdraw event is received for an unknown stream', async () => {
+    const warn = vi.spyOn(logger, 'warn');
     const unknownOnChainId = 999n;
     const event = makeEvent([symbolScVal('withdraw'), u64ScVal(unknownOnChainId)], i128ScVal(500n));
 
@@ -284,9 +295,20 @@ describe('handleDonationVaultEvent', () => {
 
     const stream = await prisma.stream.findUnique({ where: { onChainId: unknownOnChainId } });
     expect(stream).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      { eventId: event.id, streamId: unknownOnChainId.toString() },
+      'withdraw event received for unknown stream',
+    );
+
+    const deadLetter = await prisma.indexerDeadLetter.findUnique({
+      where: { eventId: event.id },
+    });
+    expect(deadLetter).not.toBeNull();
+    expect(deadLetter?.error).toContain(`unknown stream: ${unknownOnChainId}`);
   });
 
-  it('no-ops when a cancel event is received for an unknown stream', async () => {
+  it('warns and records a dead letter when a cancel event is received for an unknown stream', async () => {
+    const warn = vi.spyOn(logger, 'warn');
     const unknownOnChainId = 999n;
     const event = makeEvent(
       [symbolScVal('cancel'), u64ScVal(unknownOnChainId)],
@@ -297,6 +319,16 @@ describe('handleDonationVaultEvent', () => {
 
     const stream = await prisma.stream.findUnique({ where: { onChainId: unknownOnChainId } });
     expect(stream).toBeNull();
+    expect(warn).toHaveBeenCalledWith(
+      { eventId: event.id, streamId: unknownOnChainId.toString() },
+      'cancel event received for unknown stream',
+    );
+
+    const deadLetter = await prisma.indexerDeadLetter.findUnique({
+      where: { eventId: event.id },
+    });
+    expect(deadLetter).not.toBeNull();
+    expect(deadLetter?.error).toContain(`unknown stream: ${unknownOnChainId}`);
   });
 
   it('leaves a stream untouched on a ratemod event (documented gap)', async () => {
@@ -322,7 +354,9 @@ describe('handleDonationVaultEvent', () => {
     // assertions below fail instead of passing by coincidence. Unlike a
     // fresh stream, this one already has `withdrawn` accrued — that field
     // isn't in the payload either, so it must survive the event verbatim.
-    await handleDonationVaultEvent(makeEvent([symbolScVal('ratemod'), u64ScVal(5n)], i128ScVal(25n)));
+    await handleDonationVaultEvent(
+      makeEvent([symbolScVal('ratemod'), u64ScVal(5n)], i128ScVal(25n)),
+    );
 
     const stream = await prisma.stream.findUnique({ where: { onChainId: 5n } });
     expect(stream?.rate).toBe('10');
