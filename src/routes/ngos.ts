@@ -4,9 +4,20 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 import { sendPublicCacheable } from './cacheable.js';
 import { requireAdminSignature } from '../middleware/adminAuth.js';
+import { getPublicNgoName } from './ngoName.js';
 
 const idParamSchema = z.object({ id: z.string().uuid() });
 const RECENT_STREAMS_LIMIT = 10;
+
+interface NgoListRow {
+  id: string;
+  ownerAddress: string;
+  name: string;
+  displayName: string | null;
+  verified: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
 const updateNgoSchema = z.object({
   displayName: z.string().nullable().optional(),
@@ -114,7 +125,7 @@ async function findNgoDetail(where: { id: string } | { ownerAddress: string }) {
 
   return {
     ...ngo,
-    name: ngo.name || null,
+    name: getPublicNgoName(ngo) || null,
     registered: ngo.name !== '',
     description: approvedApp?.description ?? null,
     website: approvedApp?.website ?? null,
@@ -143,28 +154,52 @@ export async function ngoRoutes(app: FastifyInstance): Promise<void> {
     }
     const { limit, cursor, sort, q } = parsedQuery.data;
 
-    const orderBy: { createdAt: 'asc' | 'desc' } | { name: 'asc' } =
-      sort === 'oldest'
-        ? { createdAt: 'asc' }
-        : sort === 'name'
-          ? { name: 'asc' }
-          : { createdAt: 'desc' };
-
-    const rows = await prisma.ngo.findMany({
-      where: {
-        verified: true,
-        ...(q ? { name: { contains: q, mode: 'insensitive' } } : {}),
-      },
-      orderBy,
-      take: limit + 1,
-      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-    });
+    const rows = await prisma.$queryRaw<NgoListRow[]>`
+      WITH cursor_ngo AS (
+        SELECT id, COALESCE(NULLIF(display_name, ''), name) AS public_name, created_at
+        FROM ngos
+        WHERE id = ${cursor ?? null}::uuid
+      )
+      SELECT
+        ngo.id,
+        ngo.owner_address AS "ownerAddress",
+        ngo.name,
+        ngo.display_name AS "displayName",
+        ngo.verified,
+        ngo.created_at AS "createdAt",
+        ngo.updated_at AS "updatedAt"
+      FROM ngos AS ngo
+      WHERE ngo.verified = TRUE
+        AND (
+          ${q ?? null}::text IS NULL
+          OR COALESCE(NULLIF(ngo.display_name, ''), ngo.name) ILIKE '%' || ${q ?? null} || '%'
+        )
+        AND (
+          ${cursor ?? null}::uuid IS NULL
+          OR EXISTS (
+            SELECT 1
+            FROM cursor_ngo AS cursor_row
+            WHERE
+              (${sort} = 'name' AND (COALESCE(NULLIF(ngo.display_name, ''), ngo.name), ngo.id) > (cursor_row.public_name, cursor_row.id))
+              OR (${sort} = 'oldest' AND (ngo.created_at, ngo.id) > (cursor_row.created_at, cursor_row.id))
+              OR (${sort} = 'newest' AND (
+                ngo.created_at < cursor_row.created_at
+                OR (ngo.created_at = cursor_row.created_at AND ngo.id > cursor_row.id)
+              ))
+          )
+        )
+      ORDER BY
+        CASE WHEN ${sort} = 'name' THEN COALESCE(NULLIF(ngo.display_name, ''), ngo.name) END ASC,
+        CASE WHEN ${sort} = 'oldest' THEN ngo.created_at END ASC,
+        CASE WHEN ${sort} = 'newest' THEN ngo.created_at END DESC,
+        ngo.id ASC
+      LIMIT ${limit + 1}
+    `;
 
     const hasMore = rows.length > limit;
-    const ngos = hasMore ? rows.slice(0, limit) : rows;
-    const mappedNgos = ngos.map((ngo) => ({
+    const ngos = (hasMore ? rows.slice(0, limit) : rows).map((ngo) => ({
       ...ngo,
-      name: ngo.displayName || ngo.name,
+      name: getPublicNgoName(ngo),
     }));
     const nextCursor = hasMore ? ngos[ngos.length - 1].id : null;
 
