@@ -363,4 +363,134 @@ describe('handleDonationVaultEvent', () => {
     expect(stream?.balance).toBe('1000');
     expect(stream?.withdrawn).toBe('300');
   });
+
+  it('does not re-apply accrued to withdrawn on a duplicated cancel event (#266)', async () => {
+    const donorRow = await prisma.donor.create({ data: { address: fakeAddress('P') } });
+    const ngoRow = await prisma.ngo.create({
+      data: { ownerAddress: fakeAddress('Q'), name: 'NGO Q' },
+    });
+    await prisma.stream.create({
+      data: {
+        onChainId: 40n,
+        donorId: donorRow.id,
+        ngoId: ngoRow.id,
+        tokenAddress: fakeAddress('R'),
+        rate: '10',
+        balance: '1000',
+        withdrawn: '0',
+        status: 'ACTIVE',
+      },
+    });
+
+    const cancelEvent = makeEvent(
+      [symbolScVal('cancel'), u64ScVal(40n)],
+      xdr.ScVal.scvVec([i128ScVal(300n), i128ScVal(700n)]),
+    );
+
+    // First cancel event applies
+    await handleDonationVaultEvent(cancelEvent);
+
+    let stream = await prisma.stream.findUnique({ where: { onChainId: 40n } });
+    expect(stream?.status).toBe('CANCELLED');
+    expect(stream?.balance).toBe('0');
+    expect(stream?.rate).toBe('0');
+    expect(stream?.withdrawn).toBe('300');
+
+    // Duplicate cancel event should be ignored
+    await handleDonationVaultEvent(cancelEvent);
+
+    stream = await prisma.stream.findUnique({ where: { onChainId: 40n } });
+    expect(stream?.status).toBe('CANCELLED');
+    expect(stream?.balance).toBe('0');
+    expect(stream?.rate).toBe('0');
+    expect(stream?.withdrawn).toBe('300');
+
+    const cancelEvents = await prisma.streamEvent.findMany({
+      where: { streamId: 40n, type: 'cancel' },
+    });
+    expect(cancelEvents).toHaveLength(1);
+  });
+
+  it('ignores a withdraw event received after stream is cancelled (#266)', async () => {
+    const donorRow = await prisma.donor.create({ data: { address: fakeAddress('S') } });
+    const ngoRow = await prisma.ngo.create({
+      data: { ownerAddress: fakeAddress('T'), name: 'NGO T' },
+    });
+    await prisma.stream.create({
+      data: {
+        onChainId: 50n,
+        donorId: donorRow.id,
+        ngoId: ngoRow.id,
+        tokenAddress: fakeAddress('U'),
+        rate: '10',
+        balance: '1000',
+        withdrawn: '0',
+        status: 'ACTIVE',
+      },
+    });
+
+    // First cancel stream
+    await handleDonationVaultEvent(
+      makeEvent(
+        [symbolScVal('cancel'), u64ScVal(50n)],
+        xdr.ScVal.scvVec([i128ScVal(400n), i128ScVal(600n)]),
+      ),
+    );
+
+    let stream = await prisma.stream.findUnique({ where: { onChainId: 50n } });
+    expect(stream?.status).toBe('CANCELLED');
+    expect(stream?.withdrawn).toBe('400');
+    expect(stream?.balance).toBe('0');
+
+    // Withdraw arriving after cancel should be ignored
+    await handleDonationVaultEvent(
+      makeEvent([symbolScVal('withdraw'), u64ScVal(50n)], i128ScVal(100n)),
+    );
+
+    stream = await prisma.stream.findUnique({ where: { onChainId: 50n } });
+    expect(stream?.status).toBe('CANCELLED');
+    expect(stream?.withdrawn).toBe('400');
+    expect(stream?.balance).toBe('0');
+
+    const withdrawEvents = await prisma.streamEvent.findMany({
+      where: { streamId: 50n, type: 'withdraw' },
+    });
+    expect(withdrawEvents).toHaveLength(0);
+  });
+
+  it('does not fail handler or dead-letter when notification log write fails (#269)', async () => {
+    vi.spyOn(prisma.notificationLog, 'create').mockRejectedValue(
+      new Error('database error in notificationLog.create'),
+    );
+
+    const donorRow = await prisma.donor.create({ data: { address: fakeAddress('V') } });
+    const ngoRow = await prisma.ngo.create({
+      data: { ownerAddress: fakeAddress('W'), name: 'NGO W' },
+    });
+    await prisma.stream.create({
+      data: {
+        onChainId: 60n,
+        donorId: donorRow.id,
+        ngoId: ngoRow.id,
+        tokenAddress: fakeAddress('X'),
+        rate: '10',
+        balance: '1000',
+        withdrawn: '0',
+        status: 'ACTIVE',
+      },
+    });
+
+    const event = makeEvent([symbolScVal('withdraw'), u64ScVal(60n)], i128ScVal(250n));
+
+    await expect(handleDonationVaultEvent(event)).resolves.not.toThrow();
+
+    const stream = await prisma.stream.findUnique({ where: { onChainId: 60n } });
+    expect(stream?.balance).toBe('750');
+    expect(stream?.withdrawn).toBe('250');
+
+    const deadLetter = await prisma.indexerDeadLetter.findUnique({
+      where: { eventId: event.id },
+    });
+    expect(deadLetter).toBeNull();
+  });
 });
