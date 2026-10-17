@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { prisma } from '../db.js';
 import { sendPublicCacheable } from './cacheable.js';
+import { getPublicNgoName } from './ngoName.js';
 
 const querySchema = z.object({
   // Stellar StrKey ed25519 public key: 'G' + 55 base32 (A-Z2-7) chars.
@@ -39,18 +40,20 @@ const activityQuerySchema = z.object({
 
 const streamInclude = {
   donor: { select: { address: true } },
-  ngo: { select: { id: true, name: true, ownerAddress: true } },
+  ngo: { select: { id: true, name: true, displayName: true, ownerAddress: true } },
 } as const;
 
 // onChainId is a BigInt; Fastify's default JSON.stringify serializer (no
 // response schema is defined yet) throws on BigInt, so it has to go out as
 // a string.
-export function serializeStream<T extends { onChainId: bigint; ngo: { name: string } }>(stream: T) {
+export function serializeStream<
+  T extends { onChainId: bigint; ngo: { name: string; displayName?: string | null } },
+>(stream: T) {
   const { onChainId, ngo, ...rest } = stream;
   return {
     ...rest,
     onChainId: onChainId.toString(),
-    ngo: { ...ngo, name: ngo.name || null, registered: ngo.name !== '' },
+    ngo: { ...ngo, name: getPublicNgoName(ngo) || null, registered: ngo.name !== '' },
   };
 }
 

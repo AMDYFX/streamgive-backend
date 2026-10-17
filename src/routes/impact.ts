@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { prisma } from '../db.js';
 import { sendPublicCacheable } from './cacheable.js';
+import { getPublicNgoName } from './ngoName.js';
 
 const paramsSchema = z.object({ ngoId: z.string().uuid() });
 
@@ -108,7 +109,7 @@ export async function impactRoutes(app: FastifyInstance): Promise<void> {
 
       return sendPublicCacheable(request, reply, {
         ngoId: ngo.id,
-        name: ngo.name,
+        name: getPublicNgoName(ngo),
         totalCommitted: ngoCommitted.toString(),
         totalWithdrawn: ngoWithdrawn.toString(),
         activeStreams: ngo.streams.filter((s) => s.status === 'ACTIVE').length,
