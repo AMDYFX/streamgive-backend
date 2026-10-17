@@ -17,6 +17,7 @@ import { ngoApplicationRoutes } from './routes/ngoApplications.js';
 import { ngoRoutes } from './routes/ngos.js';
 import { streamRoutes } from './routes/streams.js';
 import { registerRequestIdHeader, requestIdOptions } from './requestId.js';
+import { registerCompression } from './plugins/compression.js';
 
 // pino-pretty runs its formatting on a separate worker thread; spawning
 // one per Fastify instance is fine for a single long-running process, but
@@ -99,6 +100,7 @@ export function buildServer(options?: BuildServerOptions) {
   });
 
   registerRequestIdHeader(app);
+  app.register(registerCompression);
 
   app.setErrorHandler((error: FastifyError, request, reply) => {
     request.log.error(error);
@@ -117,7 +119,13 @@ export function buildServer(options?: BuildServerOptions) {
         ? 'not_found'
         : statusCode === 400
           ? 'invalid_request'
-          : 'internal_server_error';
+          : statusCode === 413
+            ? 'payload_too_large'
+            : statusCode === 415
+              ? 'unsupported_media_type'
+              : statusCode === 429
+                ? 'rate_limited'
+                : 'internal_server_error';
     reply.code(statusCode).send({ error: errorString });
   });
 
@@ -253,7 +261,7 @@ export function buildServer(options?: BuildServerOptions) {
 
   app.addHook('onRoute', (route) => {
     const schemas: Record<string, object> = {
-      '/ngos': {
+      '/v1/ngos': {
         tags: ['NGOs'],
         summary: 'List verified NGOs',
         querystring: {
@@ -266,7 +274,7 @@ export function buildServer(options?: BuildServerOptions) {
           },
         },
       },
-      '/ngos/lookup': {
+      '/v1/ngos/lookup': {
         tags: ['NGOs'],
         summary: 'Find an NGO by Stellar address',
         querystring: {
@@ -275,7 +283,7 @@ export function buildServer(options?: BuildServerOptions) {
           required: ['address'],
         },
       },
-      '/ngos/:id/donors': {
+      '/v1/ngos/:id/donors': {
         tags: ['NGOs'],
         summary: 'List donors for an NGO',
         params: {
@@ -291,7 +299,7 @@ export function buildServer(options?: BuildServerOptions) {
           },
         },
       },
-      '/ngos/:id': {
+      '/v1/ngos/:id': {
         tags: ['NGOs'],
         summary: 'Get an NGO profile and impact totals',
         params: {
