@@ -3,6 +3,7 @@ import { scValToNative } from '@stellar/stellar-sdk';
 import { prisma } from '../../db.js';
 import { logger } from '../../logger.js';
 import { notify } from '../../notifications/service.js';
+import { recordDeadLetter } from '../deadLetter.js';
 import type { ContractEvent } from '../worker.js';
 
 type DonationDb = Pick<typeof prisma, 'donor' | 'ngo' | 'stream'>;
@@ -67,6 +68,7 @@ async function handleStreamCreated(event: ContractEvent): Promise<void> {
         balance: depositVal.toString(),
         withdrawn: '0',
         status: 'ACTIVE',
+        createdTxHash: event.txHash,
         createdAt: new Date(event.ledgerClosedAt),
       },
       update: {},
@@ -118,7 +120,14 @@ async function handleWithdraw(event: ContractEvent): Promise<void> {
   const accrued = scValToNative(event.value) as bigint;
 
   const stream = await prisma.stream.findUnique({ where: { onChainId } });
-  if (!stream) return;
+  if (!stream) {
+    logger.warn(
+      { eventId: event.id, streamId: onChainId.toString() },
+      'withdraw event received for unknown stream',
+    );
+    await recordDeadLetter(event, new Error(`unknown stream: ${onChainId}`));
+    return;
+  }
 
   const balance = BigInt(stream.balance);
   const nextBalance = balance - accrued;
@@ -182,7 +191,14 @@ async function handleCancel(event: ContractEvent): Promise<void> {
   const [accrued, refund] = scValToNative(event.value) as [bigint, bigint];
 
   const stream = await prisma.stream.findUnique({ where: { onChainId } });
-  if (!stream) return;
+  if (!stream) {
+    logger.warn(
+      { eventId: event.id, streamId: onChainId.toString() },
+      'cancel event received for unknown stream',
+    );
+    await recordDeadLetter(event, new Error(`unknown stream: ${onChainId}`));
+    return;
+  }
 
   await prisma.$transaction(async (tx) => {
     await tx.stream.update({
