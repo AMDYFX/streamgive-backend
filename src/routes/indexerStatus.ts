@@ -5,6 +5,12 @@ import { WATCHED_CONTRACT_IDS } from '../indexer/contracts.js';
 import { getLatestLedgerSequence } from '../stellar/rpc.js';
 
 export async function indexerStatusRoutes(fastify: FastifyInstance) {
+  /**
+   * Reports whether the indexer is configured and its checkpoint/ledger lag.
+   * @route GET /v1/indexer/status
+   * @auth Public
+   * @returns 200 `{ configured, checkpointLedger, updatedAt, latestLedger, ledgerLag }`; ledger values and timestamp are null when not configured.
+   */
   fastify.get('/indexer/status', async (_request: FastifyRequest, reply: FastifyReply) => {
     const envWatched =
       process.env.WATCHED_CONTRACT_IDS !== undefined
