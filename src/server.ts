@@ -192,6 +192,12 @@ export function buildServer(options?: BuildServerOptions) {
     );
   });
 
+  /**
+   * Exposes process-local Prometheus metrics.
+   * @route GET /metrics
+   * @auth Public
+   * @returns 200 Prometheus text format (`text/plain; version=0.0.4`).
+   */
   app.get('/metrics', async (_request, reply) => {
     return reply.type('text/plain; version=0.0.4; charset=utf-8').send(renderMetrics());
   });
@@ -217,6 +223,12 @@ export function buildServer(options?: BuildServerOptions) {
     });
   }
 
+  /**
+   * Checks database and Stellar RPC availability.
+   * @route GET /health
+   * @auth Public
+   * @returns 200 or 503 `{ status: "ok" | "error", db: "ok" | "error", rpc: "ok" | "error" }`.
+   */
   app.get('/health', async (_req, reply) => {
     const [dbResult, rpcResult] = await Promise.allSettled([
       prisma.$queryRaw`SELECT 1`,
@@ -230,6 +242,12 @@ export function buildServer(options?: BuildServerOptions) {
       return reply.code(status === 'ok' ? 200 : 503).send({ status, db, rpc });
   });
 
+  /**
+   * Checks readiness, including database availability and indexer lag.
+   * @route GET /health/ready
+   * @auth Public
+   * @returns 200 `{ status: "ok", lag, latestLedger, checkpointLedger }`; 503 `{ status: "error", reason, ... }` when unavailable or not caught up.
+   */
   app.get('/health/ready', async (request, reply) => {
     try {
       // 1. Check DB

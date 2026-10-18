@@ -30,6 +30,22 @@ Routes marked **Public** do not require authentication. Public directory,
 stream, and impact endpoints may return `304 Not Modified` when the
 `If-None-Match` header matches their ETag.
 
+## Integer and amount representation
+
+Stream `onChainId` values are stored as JavaScript `bigint` values in the
+backend. Amounts originating from the contract, including `rate`, `lastRate`,
+`balance`, and `withdrawn`, are stored as decimal strings to preserve the
+contract's full integer precision. Aggregated amounts such as `totalCommitted`
+and `totalWithdrawn` are returned as decimal strings too.
+
+JSON cannot serialize JavaScript `bigint` values directly. The API therefore
+converts `onChainId` to a decimal string before sending stream responses;
+on-chain event `streamId` values are also serialized as strings (or `null`).
+Treat these fields as strings when consuming the API. Do not convert IDs or
+amounts to JavaScript `number`, which can silently lose integer precision.
+For exact integer arithmetic, parse decimal strings with `BigInt` in
+JavaScript, and convert results back to strings for JSON.
+
 ## Health and metrics
 
 These endpoints are mounted at the server root, not under `/v1`.

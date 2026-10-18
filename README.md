@@ -9,6 +9,8 @@ serves the data that powers the frontend.
 - TypeScript, Node.js
 - Fastify (API server)
 - PostgreSQL
+- [Architecture overview](ARCHITECTURE.md): how the API, indexer, and
+  notification dispatcher run together and shut down.
 
 ## API
 
@@ -16,6 +18,23 @@ Most API routes, including admin routes, are mounted under `/v1`. Health checks
 are available at `/health` and `/health/ready`; Prometheus metrics are at
 `/metrics`. See the [API reference](docs/API.md) for every endpoint, its
 parameters, authentication requirements, and response examples.
+
+## Rate limits
+
+The API allows up to **100 requests per minute per client IP** by default.
+`POST /v1/ngo-applications` has a tighter limit of **5 requests per minute
+per client IP**. Exceeding a limit returns `429 Too Many Requests` with
+`{"error":"rate_limited"}`. Responses include `Retry-After` and
+`X-RateLimit-*` headers to help clients know when to retry.
+
+The global limit can be adjusted with `RATE_LIMIT_MAX` and
+`RATE_LIMIT_WINDOW`; the application submission limit can be adjusted with
+`RATE_LIMIT_APPLICATION_MAX` and `RATE_LIMIT_APPLICATION_WINDOW`.
+
+Rate-limit state is kept in memory by each server process, not shared between
+instances or persisted. With multiple instances, each instance tracks its own
+limits, so a client's effective allowance can be higher than the configured
+per-instance limit. Restarting an instance also clears its rate-limit state.
 
 ## Prometheus metrics
 
