@@ -9,6 +9,8 @@ serves the data that powers the frontend.
 - TypeScript, Node.js
 - Fastify (API server)
 - PostgreSQL
+- [Architecture overview](ARCHITECTURE.md): how the API, indexer, and
+  notification dispatcher run together and shut down.
 
 ## API
 

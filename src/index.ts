@@ -23,7 +23,7 @@ const stopIndexer = startIndexer(dispatchEvent);
  */
 export async function shutdown(signal: string): Promise<void> {
   app.log.info({ signal }, 'shutting down');
-  stopIndexer();
+  await stopIndexer();
   await app.close();
 }
 
