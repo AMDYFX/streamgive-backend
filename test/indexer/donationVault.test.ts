@@ -1,10 +1,13 @@
 import { xdr } from '@stellar/stellar-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../../src/notifications/service.js', () => ({ dispatchNotification: vi.fn() }));
+
 import { prisma } from '../../src/db.js';
 import { handleDonationVaultEvent } from '../../src/indexer/handlers/donationVault.js';
 import { handleNgoRegistryEvent } from '../../src/indexer/handlers/ngoRegistry.js';
 import { logger } from '../../src/logger.js';
+import { dispatchNotification } from '../../src/notifications/service.js';
 import { fakeAddress, resetDb } from '../helpers/db.js';
 import {
   addressScVal,
@@ -18,6 +21,7 @@ import {
 describe('handleDonationVaultEvent', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
+    vi.mocked(dispatchNotification).mockClear();
     await resetDb();
   });
 
@@ -53,8 +57,15 @@ describe('handleDonationVaultEvent', () => {
     expect(await prisma.donor.findUnique({ where: { address: donor } })).not.toBeNull();
 
     // Never went through ngo-registry — placeholder, unverified.
-    const ngoRow = await prisma.ngo.findUnique({ where: { ownerAddress: ngo } });
+    const ngoRow = await prisma.ngo.findUniqueOrThrow({ where: { ownerAddress: ngo } });
     expect(ngoRow?.verified).toBe(false);
+    expect(dispatchNotification).toHaveBeenCalledWith({
+      type: 'stream_created',
+      eventId: event.id,
+      streamId: '1',
+      donorAddress: donor,
+      ngoId: ngoRow.id,
+    });
 
     // A StreamEvent row must be written atomically with the stream upsert.
     const streamEvent = await prisma.streamEvent.findFirst({ where: { type: 'created' } });
