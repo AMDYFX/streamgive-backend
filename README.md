@@ -12,9 +12,10 @@ serves the data that powers the frontend.
 
 ## API
 
-Every HTTP API route is mounted under `/v1`, including health and admin routes.
-For example: `GET /v1/health`, `GET /v1/ngos`, `GET /v1/streams`, and
-`GET /v1/indexer/status`.
+Most API routes, including admin routes, are mounted under `/v1`. Health checks
+are available at `/health` and `/health/ready`; Prometheus metrics are at
+`/metrics`. See the [API reference](docs/API.md) for every endpoint, its
+parameters, authentication requirements, and response examples.
 
 ## Prometheus metrics
 
