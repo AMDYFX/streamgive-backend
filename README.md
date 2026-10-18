@@ -42,6 +42,11 @@ npm run db:push:test
 npm test
 ```
 
+The test database is created by the `postgres` service in `docker-compose.yml`
+as `streamgive_test`. Start it with `docker compose up -d postgres`, copy
+`.env.test.example` to `.env.test`, run `npm run db:push:test` to sync the
+Prisma schema to that database, and only then run `npm test`.
+
 ## Troubleshooting
 
 **"Can't reach database" / connection errors on startup**
@@ -74,6 +79,11 @@ matches the `admin` configured on the deployed contracts. See
 See [docs/INDEXER.md](./docs/INDEXER.md) for a full table of which on-chain
 events the indexer handles, which tables each one writes, and how the
 checkpoint and out-of-window recovery work.
+
+## Data model and API statistics
+
+See [docs/DATA-MODEL.md](./docs/DATA-MODEL.md) for the entity relationship
+diagram and the exact calculations used by `/ngos/:id` and `/impact/:ngoId`.
 
 ## Notification events
 
