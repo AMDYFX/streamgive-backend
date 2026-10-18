@@ -108,23 +108,12 @@ npm run db:seed                 # optional: load sample NGOs, donors and streams
 npm run dev
 ```
 
-```
-cp .env.example .env
-docker compose up -d postgres   # starts Postgres (+ a streamgive_test DB)
-npm install
-npm run db:deploy               # apply Prisma migrations to streamgive
-npm run db:seed                 # optional: load sample NGOs, donors and streams
-npm run dev
-```
+The test database is created by the `postgres` service in `docker-compose.yml`
+as `streamgive_test`. Start it with `docker compose up -d postgres`, copy
+`.env.test.example` to `.env.test`, run `npm run db:push:test` to sync the
+Prisma schema to that database, and only then run `npm test`.
 
-```
-cp .env.example .env
-docker compose up -d postgres   # starts Postgres (+ a streamgive_test DB)
-npm install
-npm run db:deploy               # apply Prisma migrations to streamgive
-npm run db:seed                 # optional: load sample NGOs, donors and streams
-npm run dev
-```
+## Troubleshooting
 
 ```
 cp .env.example .env
@@ -167,10 +156,12 @@ where `<hex>` is the lower-case hex HMAC-SHA256 of the **raw request body**,
 keyed with `NOTIFY_WEBHOOK_SECRET`. There is no prefix, timestamp or version
 tag in the value — it is the bare digest.
 
-Verify it against the bytes you read off the wire, before parsing them as
-JSON: re-serialising the parsed object can reorder keys or change whitespace,
-and the digest would no longer match. Compare in constant time so the
-comparison itself does not leak the expected digest a byte at a time.
+## Data model and API statistics
+
+See [docs/DATA-MODEL.md](./docs/DATA-MODEL.md) for the entity relationship
+diagram and the exact calculations used by `/ngos/:id` and `/impact/:ngoId`.
+
+## Notification events
 
 ```js
 import { createHmac, timingSafeEqual } from 'node:crypto';
@@ -469,4 +460,3 @@ npm install
 npm run db:deploy               # apply Prisma migrations to streamgive
 npm run db:seed                 # optional: load sample NGOs, donors and streams
 npm run dev
-```
