@@ -41,6 +41,28 @@ Handler: [`src/indexer/handlers/ngoRegistry.ts`](../src/indexer/handlers/ngoRegi
 
 Handler: [`src/indexer/handlers/donationVault.ts`](../src/indexer/handlers/donationVault.ts)
 
+## Soroban event decoding assumptions
+
+The handlers below use `scValToNative` followed by TypeScript casts; they do
+not validate the decoded values against a runtime schema. Topic positions
+listed here are the positions the handler reads. The event name is a Soroban
+symbol in topic position 0.
+
+| Contract | Event | Topic values decoded after the event name | Value decoded |
+|---|---|---|---|
+| ngo-registry | `register` | Position 1: owner address (`ScAddress`). | String (`ScString`), used as the NGO name. |
+| ngo-registry | `approved` | Position 1: owner address (`ScAddress`). | Not read by the handler. |
+| ngo-registry | `revoked` | Position 1: owner address (`ScAddress`). | Not read by the handler. |
+| donation-vault | `created` | Position 1: stream ID (`u64`). | Vector of five values, in order: donor address (`ScAddress`), NGO address (`ScAddress`), token address (`ScAddress`), initial deposit (`i128`), and rate (`i128`). |
+| donation-vault | `withdraw` | Position 1: stream ID (`u64`). | Accrued amount (`i128`). |
+| donation-vault | `cancel` | Position 1: stream ID (`u64`). | Vector of two values, in order: accrued amount (`i128`) and refund (`i128`). |
+
+These are the shapes the current handler code assumes, not runtime-enforced
+schemas. A mismatch can make `scValToNative`, destructuring, or a later
+conversion throw. The worker catches handler failures, records the event as a
+dead letter, and advances the checkpoint when that record succeeds. See the
+related [malformed-event hardening issue #85](https://github.com/StreamGive/streamgive-backend/issues/85).
+
 ## Checkpoint
 
 The indexer stores the last ledger it successfully processed in the
